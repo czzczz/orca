@@ -63,6 +63,30 @@ describe('installTerminalCapabilityReplyHandlers', () => {
     }
   })
 
+  it('does not answer OSC color queries when the pane skips them (jcode)', async () => {
+    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
+    term.options.theme = {
+      foreground: '#2e3434',
+      background: '#ffffff'
+    }
+    const sendInput = vi.fn<(data: string) => boolean>(() => true)
+    const disposable = installTerminalCapabilityReplyHandlers({
+      terminal: term as never,
+      parser: term.parser,
+      sendInput,
+      isReplaying: () => false,
+      skipOscColorQueryReplies: true
+    })
+
+    try {
+      await writeTerminal(term, '\x1b]10;?\x1b\\\x1b]11;?\x1b\\')
+
+      expect(sendInput).not.toHaveBeenCalled()
+    } finally {
+      disposable.dispose()
+      term.dispose()
+    }
+  })
   it('answers OSC foreground and background color queries from the active theme', async () => {
     const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
     term.options.theme = {
@@ -88,26 +112,29 @@ describe('installTerminalCapabilityReplyHandlers', () => {
     }
   })
 
-  it('does not answer OSC color queries when the pane skips them (jcode)', async () => {
+  it.each([
+    ['OSC 11 then CPR', '\x1b]11;?\x1b\\\x1b[6n', ['osc', 'cpr']],
+    ['CPR then OSC 11', '\x1b[6n\x1b]11;?\x1b\\', ['cpr', 'osc']]
+  ] as const)('preserves combined query order (%s)', async (_name, input, expectedKinds) => {
     const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
-    term.options.theme = {
-      foreground: '#2e3434',
-      background: '#ffffff'
-    }
-    const sendInput = vi.fn<(data: string) => boolean>(() => true)
+    term.options.theme = { background: '#ffffff' }
+    const replies: string[] = []
     const disposable = installTerminalCapabilityReplyHandlers({
       terminal: term as never,
       parser: term.parser,
-      sendInput,
-      isReplaying: () => false,
-      skipOscColorQueryReplies: true
+      sendInput: (data) => {
+        replies.push(data)
+      },
+      isReplaying: () => false
     })
+    const onData = term.onData((data) => replies.push(data))
 
     try {
-      await writeTerminal(term, '\x1b]10;?\x1b\\\x1b]11;?\x1b\\')
-
-      expect(sendInput).not.toHaveBeenCalled()
+      await writeTerminal(term, input)
+      const kinds = replies.map((reply) => (reply.startsWith('\x1b]11;') ? 'osc' : 'cpr'))
+      expect(kinds).toEqual(expectedKinds)
     } finally {
+      onData.dispose()
       disposable.dispose()
       term.dispose()
     }

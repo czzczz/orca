@@ -16,9 +16,8 @@ type TerminalCapabilityRepliesDeps = {
   sendInput: (data: string) => boolean | void
   isReplaying: () => boolean
   da1Response?: string
-  // Why: jcode themes itself and renders the cooked OSC color reply as composer
-  // text when its input loop is not ready yet (same leak class as #12112); the
-  // main-side startup ingress already skips jcode, so the renderer must too.
+  /** Why: jcode themes itself; answering its OSC color burst can land before its
+   *  composer is ready and render the reply as pre-typed text. */
   skipOscColorQueryReplies?: boolean
 }
 
@@ -140,14 +139,11 @@ export function installTerminalCapabilityReplyHandlers(
     deps.parser.registerOscHandler(
       10,
       guardParserHandler('osc-10-color-query', (data) => {
-        if (deps.skipOscColorQueryReplies) {
-          return true
-        }
         const slots = terminalOscColorQuerySlotsForBody(10, data.trim())
         if (!slots) {
           return false
         }
-        if (deps.isReplaying()) {
+        if (deps.isReplaying() || deps.skipOscColorQueryReplies === true) {
           return true
         }
         return sendTerminalOscColorQueryRepliesForSlots(slots, deps.terminal, deps.sendInput)
@@ -156,14 +152,11 @@ export function installTerminalCapabilityReplyHandlers(
     deps.parser.registerOscHandler(
       11,
       guardParserHandler('osc-11-color-query', (data) => {
-        if (deps.skipOscColorQueryReplies) {
-          return true
-        }
         const slots = terminalOscColorQuerySlotsForBody(11, data.trim())
         if (!slots) {
           return false
         }
-        if (deps.isReplaying()) {
+        if (deps.isReplaying() || deps.skipOscColorQueryReplies === true) {
           return true
         }
         return sendTerminalOscColorQueryRepliesForSlots(slots, deps.terminal, deps.sendInput)

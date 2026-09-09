@@ -2,6 +2,7 @@ import { wslGatedReadFile } from '../native-chat/wsl-transcript-fs-access'
 import type { AiVaultSession } from '../../shared/ai-vault-types'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import type { FileWithMtime } from './session-scanner-types'
+import type { TranscriptMessageSink } from './session-transcript-consumers'
 import {
   addPreviewContent,
   createAccumulator,
@@ -20,6 +21,8 @@ import {
 type ParserSessionOptions = {
   executionHostId?: ExecutionHostId
   executionHostPlatform?: NodeJS.Platform | null
+  // Why: where decoded messages go when the caller is streaming a transcript reader.
+  messages?: TranscriptMessageSink
 }
 
 const PREVIEW_ROLE_BY_MESSAGE_ROLE: Record<string, 'user' | 'assistant' | 'tool' | 'unknown'> = {
@@ -35,12 +38,14 @@ function isInjectedContextMessage(message: Record<string, unknown>): boolean {
 
 export async function parseJcodeSessionFile(
   file: FileWithMtime,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  messages?: TranscriptMessageSink
 ): Promise<AiVaultSession | null> {
   return parseJcodeSessionContent(
     file,
     await wslGatedReadFile(file.path, 'utf-8', 'scan'),
-    platform
+    platform,
+    messages ? { messages } : undefined
   )
 }
 
@@ -63,7 +68,12 @@ export function parseJcodeSessionContent(
   }
   const sessionId =
     extractString(record.id) ?? extractString(record.session_id) ?? sessionIdFromFileName(file.path)
-  const accumulator = createAccumulator({ agent: 'jcode', file, sessionId })
+  const accumulator = createAccumulator({
+    agent: 'jcode',
+    file,
+    sessionId,
+    messages: options.messages
+  })
   accumulator.model = extractString(record.model)
   accumulator.cwd = extractString(record.working_dir) ?? extractString(record.working_directory)
   updateTimeline(accumulator, record.created_at)
